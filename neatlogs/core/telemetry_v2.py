@@ -447,8 +447,8 @@ def _semantic(span: ReadableSpan, attrs: Mapping[str, Any], kind: str) -> dict[s
         return {
             "kind": kind,
             "model": _first(
-            attrs, "neatlogs.reranker.model", "neatlogs.reranker.model_name", default=None
-        ),
+                attrs, "neatlogs.reranker.model", "neatlogs.reranker.model_name", default=None
+            ),
             "query": _decode(attrs.get("neatlogs.reranker.query")),
             "input_documents": _documents(attrs.get("neatlogs.reranker.input_documents")),
             "output_documents": _documents(attrs.get("neatlogs.reranker.output_documents")),
