@@ -343,13 +343,15 @@ def _llm_semantic(span: ReadableSpan, attrs: Mapping[str, Any]) -> dict[str, Any
                 "neatlogs.llm.model_name",
                 default=None,
             ),
-            "operation": str(_first(
+            "operation": str(
+                _first(
                     attrs,
                     "neatlogs.llm.operation",
                     "neatlogs.llm.operation.name",
                     "neatlogs.llm.operation.type",
                     default="unknown",
-                )),
+                )
+            ),
             "messages": input_messages,
             "tools": [],
             "parameters": parameters,
