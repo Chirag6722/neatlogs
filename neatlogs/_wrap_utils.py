@@ -518,6 +518,7 @@ def _bootstrap_from_env(api_key: str) -> None:
     from opentelemetry.exporter.otlp.proto.http import Compression
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+
     from .core.byte_limited_exporter import ByteLimitedSpanExporter
     from .core.delivery import DeliveryDiagnostics, ObservableBatchSpanProcessor
     from .core.masking_exporter import MaskingSpanExporter
