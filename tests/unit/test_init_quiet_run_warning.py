@@ -1,6 +1,17 @@
 import logging
 
+import pytest
+
 import neatlogs
+
+
+@pytest.fixture(autouse=True)
+def _capture_neatlogs_logger(caplog):
+    # the neatlogs logger does not propagate to root, so attach the handler directly
+    logger = logging.getLogger("neatlogs")
+    logger.addHandler(caplog.handler)
+    yield
+    logger.removeHandler(caplog.handler)
 
 
 def _warnings(caplog):
