@@ -1054,6 +1054,20 @@ class _InterruptedSpanProxy:
         return getattr(self._span, name)
 
 
+class _FailedStreamSpanProxy:
+    def __init__(self, span: otel_trace.Span) -> None:
+        self._span = span
+
+    def set_status(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def end(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._span, name)
+
+
 def _bounded_object_size(value: Any, limit: int, seen: Optional[set[int]] = None) -> int:
     """Estimate retained chunk bytes without materializing an unbounded serialization."""
 
@@ -1269,6 +1283,24 @@ class SyncStreamWrapper:
         if self._incremental and hasattr(self._finalizer, "fail"):
             self._finalizer.fail(self._span, error)
             return
+        if not self._incremental:
+            elapsed_ms = (time.perf_counter() - self._start_time) * 1000
+            ttft_ms = (
+                (self._first_chunk_time - self._start_time) * 1000
+                if self._first_chunk_time is not None
+                else None
+            )
+            capture_span = _FailedStreamSpanProxy(self._span)
+            try:
+                if _accepts_keyword(self._finalizer, "interrupted"):
+                    self._finalizer(
+                        capture_span, self._chunks, elapsed_ms, ttft_ms, interrupted=True
+                    )
+                else:
+                    self._finalizer(capture_span, self._chunks, elapsed_ms, ttft_ms)
+            except Exception:
+                pass
+
         from opentelemetry.trace import StatusCode
 
         if error.__class__.__name__ in {"CancelledError", "GeneratorExit"}:
@@ -1432,6 +1464,24 @@ class AsyncStreamWrapper:
         if self._incremental and hasattr(self._finalizer, "fail"):
             self._finalizer.fail(self._span, error)
             return
+        if not self._incremental:
+            elapsed_ms = (time.perf_counter() - self._start_time) * 1000
+            ttft_ms = (
+                (self._first_chunk_time - self._start_time) * 1000
+                if self._first_chunk_time is not None
+                else None
+            )
+            capture_span = _FailedStreamSpanProxy(self._span)
+            try:
+                if _accepts_keyword(self._finalizer, "interrupted"):
+                    self._finalizer(
+                        capture_span, self._chunks, elapsed_ms, ttft_ms, interrupted=True
+                    )
+                else:
+                    self._finalizer(capture_span, self._chunks, elapsed_ms, ttft_ms)
+            except Exception:
+                pass
+
         from opentelemetry.trace import StatusCode
 
         if error.__class__.__name__ in {"CancelledError", "GeneratorExit"}:
