@@ -94,6 +94,7 @@ def test_failed_finalizer_cannot_hide_provider_error(mode, error, modern):
 def test_anthropic_finalizer_keeps_partial_text_and_usage(mode):
     from types import SimpleNamespace as NS
 
+    pytest.importorskip("anthropic")
     from neatlogs.anthropic import _finalize_stream
 
     span, sink = pipeline()
