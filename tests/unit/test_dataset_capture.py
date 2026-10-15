@@ -768,3 +768,35 @@ def test_capture_rejects_dropped_event_or_link_attributes(client, api, item):
                     )
     assert not completions(api)
     assert api[-1][2] == {"reason": "incomplete_execution"}
+
+
+def test_http_200_partial_rejection_aborts_capture(api, monkeypatch):
+    import requests
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceResponse
+
+    receipt = ExportTraceServiceResponse()
+    receipt.partial_success.rejected_spans = 1
+    receipt.partial_success.error_message = "private receiver rejection"
+    deliveries = []
+
+    def request(self, method, url, **kwargs):
+        deliveries.append(url)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = receipt.SerializeToString()
+        return response
+
+    monkeypatch.setattr(requests.Session, "request", request)
+    monkeypatch.setattr("neatlogs.client.OTLPSpanExporter", OTLPSpanExporter)
+    sdk = neatlogs.Client(api_key="ingest-key", workflow_name="partial", uploads_enabled=False)
+    try:
+        with sdk.activate(), pytest.raises(DatasetCaptureError, match="lost data"):
+            with capture():
+                with neatlogs.trace("root", kind="WORKFLOW"):
+                    pass
+        assert not completions(api)
+        assert api[-1][2] == {"reason": "export_failed"}
+        assert len(deliveries) == 1
+    finally:
+        sdk.shutdown()
