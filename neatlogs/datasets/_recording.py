@@ -28,6 +28,14 @@ def pipeline():
     provider = get_neatlogs_provider()
     if provider is None:
         raise ValueError("Initialize Neatlogs before dataset capture")
+    limits = provider._span_limits
+    if any(
+        getattr(limits, field, None) is not None
+        for field in ("max_attribute_length", "max_span_attribute_length")
+    ):
+        raise ValueError(
+            "Dataset capture requires OpenTelemetry attribute-value truncation disabled"
+        )
     sampler = provider.sampler
     if isinstance(sampler, ParentBased):
         if (

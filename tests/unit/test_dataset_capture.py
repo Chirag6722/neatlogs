@@ -701,3 +701,19 @@ def test_existing_destination_uses_id_without_creation_flags(client, api):
             pass
     assert api[0][2] == {"destination": {"kind": "existing", "datasetId": DATASET}}
     assert len(completions(api)[0][2]["traces"]) == 1
+
+
+@pytest.mark.parametrize("limit", ["max_attribute_length", "max_span_attribute_length"])
+def test_silent_attribute_value_limits_rejected_before_registration(client, api, limit):
+    from opentelemetry.sdk.trace import SpanLimits, TracerProvider
+
+    provider = TracerProvider(span_limits=SpanLimits(**{limit: 64}))
+    sdk = neatlogs.Client(api_key="key", workflow_name="limited", tracer_provider=provider)
+    try:
+        with sdk.activate(), pytest.raises(ValueError, match="attribute-value truncation"):
+            with capture():
+                pytest.fail("Capture must reject silent value truncation before execution")
+        assert not api
+    finally:
+        sdk.shutdown()
+        provider.shutdown()
