@@ -648,6 +648,7 @@ def init(
             otlp_exporter,
             diagnostics=_delivery_diagnostics,
             upload_authority=_upload_authority,
+            capture_owner=_span_processor,
         )
         limited_span_exporter = TypedMediaSpanExporter(
             limited_span_exporter,

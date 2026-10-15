@@ -187,6 +187,7 @@ class Client:
                 exporter,
                 diagnostics=self._delivery_diagnostics,
                 upload_authority=self._upload_authority,
+                capture_owner=self._span_processor,
             )
             limited_span_exporter = TypedMediaSpanExporter(
                 limited_span_exporter,
