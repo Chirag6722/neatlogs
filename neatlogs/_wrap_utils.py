@@ -1298,7 +1298,7 @@ class SyncStreamWrapper:
                     )
                 else:
                     self._finalizer(capture_span, self._chunks, elapsed_ms, ttft_ms)
-            except Exception:
+            except BaseException:
                 pass
 
         from opentelemetry.trace import StatusCode
@@ -1479,7 +1479,7 @@ class AsyncStreamWrapper:
                     )
                 else:
                     self._finalizer(capture_span, self._chunks, elapsed_ms, ttft_ms)
-            except Exception:
+            except BaseException:
                 pass
 
         from opentelemetry.trace import StatusCode
