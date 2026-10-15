@@ -31,12 +31,17 @@ class CaptureHandle:
         self._manifest: bytes | None = None
 
     def _request(self, method, suffix="", *, content=None, phase=None):
-        return self._api.request(
-            method,
-            "/dataset-capture-jobs" + suffix,
-            content=content,
-            key=self._keys[phase] if phase else None,
-        )
+        try:
+            return self._api.request(
+                method,
+                "/dataset-capture-jobs" + suffix,
+                content=content,
+                key=self._keys[phase] if phase else None,
+            )
+        except DatasetError as error:
+            raise DatasetCaptureError(
+                str(error), status_code=error.status_code, idempotency_key=error.idempotency_key
+            ) from None
 
     def _register(self, destination):
         data = self._request(
@@ -48,7 +53,7 @@ class CaptureHandle:
             if data["state"] != "recording":
                 raise ValueError()
             self.state = data["state"]
-        except (KeyError, ValueError, TypeError):
+        except (KeyError, ValueError, TypeError, AttributeError):
             raise DatasetCaptureError(
                 "Dataset API returned an invalid capture registration"
             ) from None
@@ -110,7 +115,6 @@ class CaptureHandle:
         data = self._request("GET", f"/{self.capture_id}")
         if not isinstance(data.get("job"), dict):
             raise DatasetCaptureError("Dataset API returned an invalid job")
-        self.last_status = data
         job = data["job"]
         try:
             if (
@@ -126,6 +130,7 @@ class CaptureHandle:
                 UUID(version)
         except (KeyError, TypeError, ValueError, AttributeError):
             raise DatasetCaptureError("Dataset API returned an invalid job") from None
+        self.last_status = data
         self.state = job["state"]
         return data
 
