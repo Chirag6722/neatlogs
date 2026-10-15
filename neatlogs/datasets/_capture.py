@@ -64,6 +64,8 @@ class _Capture:
     def _finish(self, original_error):
         reason = "incomplete_execution"
         try:
+            if self.handle.state in {"failed", "cancelled"}:
+                return
             manifest = self.recording.freeze()
             encode_manifest(manifest)
             reason = "export_failed"

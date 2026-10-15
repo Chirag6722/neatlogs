@@ -175,7 +175,7 @@ class Recording:
 
 class CaptureProcessor(SpanProcessor):
     def __init__(self, owner):
-        self.owner = owner
+        self.owner = weakref.proxy(owner)
         self.lock = threading.Lock()
         self.pending: dict[tuple[int, int], Recording] = {}
         self.traces: dict[int, Recording] = {}
@@ -236,8 +236,8 @@ def _incomplete_value(value, depth=0):
     if depth > 64:
         return True
     if isinstance(value, Mapping):
-        if value.get("state") in {"failed", "pending-upload", "unavailable"} and (
-            value.get("type") in {"image", "audio", "video", "document", "media"}
+        if value.get("state") in ("failed", "pending-upload", "unavailable") and (
+            value.get("type") in ("image", "audio", "video", "document", "media")
             or str(value.get("id", "")).startswith("nl_media_")
         ):
             return True
