@@ -189,7 +189,10 @@ class CaptureProcessor(SpanProcessor):
         self.traces: dict[int, Recording] = {}
 
     def on_start(self, span, parent_context=None):
-        recording = current_recording.get()
+        with self.lock:
+            recording = self.traces.get(span.context.trace_id)
+        if recording is None:
+            recording = current_recording.get()
         if (
             recording is not None
             and recording.processor is self

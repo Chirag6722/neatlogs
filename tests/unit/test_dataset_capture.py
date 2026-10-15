@@ -717,3 +717,35 @@ def test_silent_attribute_value_limits_rejected_before_registration(client, api,
     finally:
         sdk.shutdown()
         provider.shutdown()
+
+
+def test_open_thread_descendant_without_capture_context_prevents_sealing(client, api):
+    from opentelemetry import trace
+
+    sdk = client[0]
+    started = threading.Event()
+    release = threading.Event()
+
+    def child(context):
+        span = sdk.get_tracer("neatlogs.test").start_span("thread-child", context=context)
+        try:
+            started.set()
+            release.wait(timeout=5)
+        finally:
+            span.end()
+
+    with sdk.activate():
+        try:
+            with pytest.raises(DatasetCaptureError, match="unfinished"):
+                with capture():
+                    with neatlogs.trace("root", kind="WORKFLOW") as root:
+                        worker = threading.Thread(
+                            target=child, args=(trace.set_span_in_context(root),)
+                        )
+                        worker.start()
+                        assert started.wait(timeout=3)
+        finally:
+            release.set()
+            worker.join(timeout=5)
+    assert not completions(api)
+    assert api[-1][2] == {"reason": "incomplete_execution"}
