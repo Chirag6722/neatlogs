@@ -213,6 +213,46 @@ async def test_cancellation_aborts_without_replacing_cancellation(client, api):
     assert not completions(api)
 
 
+@pytest.mark.asyncio
+async def test_cancellation_during_async_flush_aborts_before_completion(client, api, monkeypatch):
+    from neatlogs.datasets import _capture as capture_module
+
+    flush_started = threading.Event()
+    release_flush = threading.Event()
+    original_pipeline = capture_module.pipeline
+
+    def blocking_pipeline():
+        processor, flush = original_pipeline()
+
+        def blocking_flush():
+            flush_started.set()
+            if not release_flush.wait(5):
+                raise TimeoutError("test flush was not released")
+            flush()
+
+        return processor, blocking_flush
+
+    monkeypatch.setattr(capture_module, "pipeline", blocking_pipeline)
+
+    async def run_capture():
+        with client[0].activate():
+            async with capture():
+                with neatlogs.trace("cancel during flush", kind="WORKFLOW"):
+                    pass
+
+    task = asyncio.create_task(run_capture())
+    try:
+        assert await asyncio.to_thread(flush_started.wait, 2)
+        task.cancel()
+        await asyncio.sleep(0)
+    finally:
+        release_flush.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not completions(api)
+    assert api[-1][2] == {"reason": "cancelled"}
+
+
 def test_completion_retries_keep_exact_manifest_and_key(client, api, monkeypatch):
     actual = httpx.request
     attempts = []

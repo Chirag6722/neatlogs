@@ -29,6 +29,9 @@ class _Capture:
         self.recording = None
         self._entered = False
         self._entry_lock = threading.Lock()
+        self._finalization_lock = threading.Lock()
+        self._cancel_requested = threading.Event()
+        self._completion_started = False
 
     def _prepare(self):
         if current_recording.get() is not None:
@@ -86,6 +89,15 @@ class _Capture:
                 self.handle._abort(reason)
                 return
             self.handle._manifest = encode_manifest(exported)
+            with self._finalization_lock:
+                cancelled_during_finish = self._cancel_requested.is_set()
+                if not cancelled_during_finish:
+                    self._completion_started = True
+            if cancelled_during_finish:
+                reason = "cancelled"
+                self.handle._abort(reason)
+                reason = None
+                return
             # An ambiguous completion response must be retried, never countermanded by abort.
             reason = None
             self.handle.retry_completion()
@@ -118,6 +130,9 @@ class _Capture:
         try:
             await asyncio.shield(task)
         except asyncio.CancelledError:
+            with self._finalization_lock:
+                if not self._completion_started:
+                    self._cancel_requested.set()
             try:
                 await asyncio.shield(task)
             except Exception as error:
