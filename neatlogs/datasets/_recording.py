@@ -117,6 +117,8 @@ class Recording:
             if any(
                 getattr(span, field, 0)
                 for field in ("dropped_attributes", "dropped_events", "dropped_links")
+            ) or any(
+                getattr(item, "dropped_attributes", 0) for item in (*span.events, *span.links)
             ):
                 self.error = "Captured telemetry exceeded OpenTelemetry span limits"
             if not span.context.trace_flags.sampled:

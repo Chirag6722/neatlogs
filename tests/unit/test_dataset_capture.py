@@ -749,3 +749,22 @@ def test_open_thread_descendant_without_capture_context_prevents_sealing(client,
             worker.join(timeout=5)
     assert not completions(api)
     assert api[-1][2] == {"reason": "incomplete_execution"}
+
+
+@pytest.mark.parametrize("item", ["event", "link"])
+def test_capture_rejects_dropped_event_or_link_attributes(client, api, item):
+    from opentelemetry.trace import SpanContext, TraceFlags
+
+    with client[0].activate(), pytest.raises(DatasetCaptureError, match="span limits"):
+        with capture():
+            with neatlogs.trace("root", kind="WORKFLOW") as span:
+                attributes = {f"key_{index}": index for index in range(200)}
+                if item == "event":
+                    span.add_event("event", attributes)
+                else:
+                    span.add_link(
+                        SpanContext(1, 2, is_remote=True, trace_flags=TraceFlags.SAMPLED),
+                        attributes,
+                    )
+    assert not completions(api)
+    assert api[-1][2] == {"reason": "incomplete_execution"}
