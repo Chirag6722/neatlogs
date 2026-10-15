@@ -52,11 +52,14 @@ def test_failed_legacy_stream_keeps_partial_output(mode):
 @pytest.mark.parametrize("mode", ["sync", "async"])
 @pytest.mark.parametrize("error", [ValueError("broken"), GeneratorExit()])
 @pytest.mark.parametrize("modern", [True, False])
-def test_failed_finalizer_cannot_hide_provider_error(mode, error, modern):
+@pytest.mark.parametrize(
+    "finalizer_error", [RuntimeError("telemetry error"), GeneratorExit(), asyncio.CancelledError()]
+)
+def test_failed_finalizer_cannot_hide_provider_error(mode, error, modern, finalizer_error):
     span, sink = pipeline()
 
     def broken(*args, **kwargs):
-        raise RuntimeError("telemetry error")
+        raise finalizer_error
 
     if modern:
         finish = broken
