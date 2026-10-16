@@ -278,6 +278,14 @@ def _set_input_attributes(span: Any, messages: list, system: Any, kwargs: dict) 
 
 def _finalize_response(span: Any, response: Any, duration_ms: float) -> None:
     """Extract attributes from a non-streaming Anthropic Message response."""
+    _set_message_attributes(span, response)
+    span.set_attribute("neatlogs.llm.metrics.duration_ms", round(duration_ms, 3))
+    span.set_status(StatusCode.OK)
+    span.end()
+
+
+def _set_message_attributes(span: Any, response: Any) -> None:
+    """Record the output, tool calls, stop reason, model and usage of a Message."""
     content = getattr(response, "content", []) or []
     text_parts: List[str] = []
     tool_call_idx = 0
@@ -320,10 +328,6 @@ def _finalize_response(span: Any, response: Any, duration_ms: float) -> None:
     if usage:
         _set_usage_attributes(span, usage)
 
-    span.set_attribute("neatlogs.llm.metrics.duration_ms", round(duration_ms, 3))
-    span.set_status(StatusCode.OK)
-    span.end()
-
 
 def _set_usage_attributes(span: Any, usage: Any) -> None:
     """Set token usage attributes from Anthropic usage object."""
@@ -354,9 +358,16 @@ def _finalize_stream(
     ttft_ms: Optional[float],
     *,
     interrupted: bool = False,
-    error: Optional[BaseException] = None,
 ) -> None:
     """Finalize a streaming response span from accumulated Anthropic stream events."""
+    _set_stream_attributes(span, chunks)
+    _set_stream_timing(span, duration_ms, ttft_ms)
+    span.set_status(StatusCode.UNSET if interrupted else StatusCode.OK)
+    span.end()
+
+
+def _set_stream_attributes(span: Any, chunks: List[Any]) -> Optional[str]:
+    """Record what the stream events carried. Returns the stop reason, if one arrived."""
     text_parts: List[str] = []
     tool_calls_acc: dict = {}
     thinking_parts: List[str] = []
@@ -445,7 +456,10 @@ def _finalize_stream(
         span.set_attribute("neatlogs.llm.token_count.cache_read", cache_read)
     if cache_write is not None:
         span.set_attribute("neatlogs.llm.token_count.cache_write", cache_write)
+    return stop_reason
 
+
+def _set_stream_timing(span: Any, duration_ms: float, ttft_ms: Optional[float]) -> None:
     span.set_attribute("neatlogs.llm.metrics.duration_ms", round(duration_ms, 3))
     if ttft_ms is not None:
         span.set_attribute("neatlogs.llm.metrics.ttft_ms", round(ttft_ms, 3))
@@ -455,40 +469,53 @@ def _finalize_stream(
                 round(duration_ms - ttft_ms, 3),
             )
 
-    if error is not None:
-        span.set_status(StatusCode.ERROR, str(error))
-        span.record_exception(error)
-    else:
-        span.set_status(StatusCode.UNSET if interrupted else StatusCode.OK)
-    span.end()
 
-
-def _finalize_managed_stream(
+def _finalize_helper_stream(
     span: Any,
     stream: Any,
     chunks: List[Any],
     duration_ms: float,
     ttft_ms: Optional[float],
-    exc: Optional[BaseException],
+    error: Optional[BaseException],
 ) -> None:
-    """Finalize a messages.stream() span.
+    """End the span of a ``messages.stream()`` block.
 
-    Events are only collected when the caller iterates the wrapper itself.
-    text_stream, get_final_message() and get_final_text() read the underlying
-    stream directly, so fall back to its accumulated message snapshot.
+    Anthropic's helper keeps the message it has assembled so far. That snapshot
+    is the same whichever way the caller read the stream (``text_stream``,
+    ``get_final_message``, ``until_done`` or plain iteration), so the span no
+    longer depends on the caller iterating through this wrapper.
     """
-    error = exc if isinstance(exc, Exception) else None
-    if exc is not None and error is None:
-        # Cancelled or interrupted: never export this as a successful span.
+    snapshot = None
+    if stream is not None:
+        try:
+            snapshot = stream.current_message_snapshot
+        except Exception:
+            snapshot = None
+    if getattr(snapshot, "type", None) != "message":
+        snapshot = None
+    if snapshot is not None:
+        _set_message_attributes(span, snapshot)
+        stop_reason = getattr(snapshot, "stop_reason", None)
+    else:
+        stop_reason = _set_stream_attributes(span, chunks)
+    _set_stream_timing(span, duration_ms, ttft_ms)
+
+    cancelled = error is not None and error.__class__.__name__ in {
+        "CancelledError",
+        "GeneratorExit",
+    }
+    # A reply that started and never reached its stop reason was left early.
+    left_early = (snapshot is not None or bool(chunks)) and not stop_reason
+    if error is not None and not cancelled:
+        span.set_status(StatusCode.ERROR, str(error))
+        if isinstance(error, Exception):
+            span.record_exception(error)
+    elif cancelled or left_early:
         span.set_attribute("neatlogs.stream.cancelled", True)
-        _finalize_stream(span, chunks, duration_ms, ttft_ms, interrupted=True)
-        return
-    if error is None and not chunks:
-        snapshot = getattr(stream, "current_message_snapshot", None)
-        if snapshot is not None and getattr(snapshot, "content", None):
-            _finalize_response(span, snapshot, duration_ms)
-            return
-    _finalize_stream(span, chunks, duration_ms, ttft_ms, error=error)
+        span.set_status(StatusCode.UNSET)
+    else:
+        span.set_status(StatusCode.OK)
+    span.end()
 
 
 class _SyncStreamManagerWrapper:
@@ -501,18 +528,29 @@ class _SyncStreamManagerWrapper:
         self._first_chunk_time: Optional[float] = None
         self._chunks: List[Any] = []
         self._finalized = False
+        self._stream: Any = None
 
     def __enter__(self):
-        self._stream = self._stream_mgr.__enter__()
+        try:
+            self._stream = self._stream_mgr.__enter__()
+        except BaseException as error:
+            # The request itself failed (for example HTTP 529): no block will
+            # run, so nothing else would ever end this span.
+            self._finalize(error)
+            raise
         return _SyncStreamIterator(self)
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc, tb):
+        error = exc
         try:
-            self._stream_mgr.__exit__(*args)
+            self._stream_mgr.__exit__(exc_type, exc, tb)
+        except BaseException as close_error:
+            error = close_error
+            raise
         finally:
-            self._finalize(args[1] if len(args) > 1 else None)
+            self._finalize(error)
 
-    def _finalize(self, exc=None):
+    def _finalize(self, error: Optional[BaseException] = None):
         if self._finalized:
             return
         self._finalized = True
@@ -520,9 +558,7 @@ class _SyncStreamManagerWrapper:
         ttft_ms = None
         if self._first_chunk_time is not None:
             ttft_ms = (self._first_chunk_time - self._start_time) * 1000
-        _finalize_managed_stream(
-            self._span, getattr(self, "_stream", None), self._chunks, elapsed_ms, ttft_ms, exc
-        )
+        _finalize_helper_stream(self._span, self._stream, self._chunks, elapsed_ms, ttft_ms, error)
 
     def __getattr__(self, name):
         return getattr(self._stream_mgr, name)
@@ -555,18 +591,27 @@ class _AsyncStreamManagerWrapper:
         self._first_chunk_time: Optional[float] = None
         self._chunks: List[Any] = []
         self._finalized = False
+        self._stream: Any = None
 
     async def __aenter__(self):
-        self._stream = await self._stream_mgr.__aenter__()
+        try:
+            self._stream = await self._stream_mgr.__aenter__()
+        except BaseException as error:
+            self._finalize(error)
+            raise
         return _AsyncStreamIterator(self)
 
-    async def __aexit__(self, *args):
+    async def __aexit__(self, exc_type, exc, tb):
+        error = exc
         try:
-            await self._stream_mgr.__aexit__(*args)
+            await self._stream_mgr.__aexit__(exc_type, exc, tb)
+        except BaseException as close_error:
+            error = close_error
+            raise
         finally:
-            self._finalize(args[1] if len(args) > 1 else None)
+            self._finalize(error)
 
-    def _finalize(self, exc=None):
+    def _finalize(self, error: Optional[BaseException] = None):
         if self._finalized:
             return
         self._finalized = True
@@ -574,9 +619,7 @@ class _AsyncStreamManagerWrapper:
         ttft_ms = None
         if self._first_chunk_time is not None:
             ttft_ms = (self._first_chunk_time - self._start_time) * 1000
-        _finalize_managed_stream(
-            self._span, getattr(self, "_stream", None), self._chunks, elapsed_ms, ttft_ms, exc
-        )
+        _finalize_helper_stream(self._span, self._stream, self._chunks, elapsed_ms, ttft_ms, error)
 
     def __getattr__(self, name):
         return getattr(self._stream_mgr, name)
