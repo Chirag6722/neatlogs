@@ -11,16 +11,15 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 
 anthropic = pytest.importorskip("anthropic")
 
+from anthropic import _base_client as _anthropic_base_client
+
 from neatlogs import _wrap_utils as w  # noqa: E402
 from neatlogs.anthropic import (  # noqa: E402
     wrap_anthropic_client,
     wrap_async_anthropic_client,
 )
 
-try:
-    import httpx2 as httpx
-except ImportError:  # older anthropic releases use httpx
-    import httpx
+httpx = _anthropic_base_client.httpx
 
 KW = dict(model="claude-x", max_tokens=5, messages=[{"role": "user", "content": "hi"}])
 
