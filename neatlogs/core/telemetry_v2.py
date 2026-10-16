@@ -34,7 +34,6 @@ _KINDS = {
     "VECTOR_STORE",
     "MEMORY",
     "GUARDRAIL",
-    "EVALUATOR",
     "LOG",
     "HTTP",
     "UNKNOWN",
