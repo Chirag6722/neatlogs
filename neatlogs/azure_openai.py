@@ -194,7 +194,12 @@ def _patch_completions(completions: Any) -> None:
             raise
 
         if is_stream:
-            return SyncStreamWrapper(response, span, OpenAIStreamFinalizer(), skip_chunk=_usage_only_chunk if forced_usage_chunk else None)
+            return SyncStreamWrapper(
+                response,
+                span,
+                OpenAIStreamFinalizer(),
+                skip_chunk=_usage_only_chunk if forced_usage_chunk else None,
+            )
 
         _finalize_response(span, response, (time.perf_counter() - start) * 1000)
         return response
@@ -235,7 +240,12 @@ def _patch_async_completions(completions: Any) -> None:
             raise
 
         if is_stream:
-            return AsyncStreamWrapper(response, span, OpenAIStreamFinalizer(), skip_chunk=_usage_only_chunk if forced_usage_chunk else None)
+            return AsyncStreamWrapper(
+                response,
+                span,
+                OpenAIStreamFinalizer(),
+                skip_chunk=_usage_only_chunk if forced_usage_chunk else None,
+            )
 
         _finalize_response(span, response, (time.perf_counter() - start) * 1000)
         return response
