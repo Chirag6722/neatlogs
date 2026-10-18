@@ -1140,7 +1140,13 @@ class SyncStreamWrapper:
     while recording timestamps. Calls finalizer on stream exhaustion.
     """
 
-    def __init__(self, stream: Any, span: otel_trace.Span, finalizer: Callable, skip_chunk: Optional[Callable[[Any], bool]] = None):
+    def __init__(
+        self,
+        stream: Any,
+        span: otel_trace.Span,
+        finalizer: Callable,
+        skip_chunk: Optional[Callable[[Any], bool]] = None,
+    ):
         self._stream = stream
         self._span = span
         self._finalizer = finalizer
@@ -1327,7 +1333,13 @@ class AsyncStreamWrapper:
     Wraps an async streaming response. Same contract as SyncStreamWrapper.
     """
 
-    def __init__(self, stream: Any, span: otel_trace.Span, finalizer: Callable, skip_chunk: Optional[Callable[[Any], bool]] = None):
+    def __init__(
+        self,
+        stream: Any,
+        span: otel_trace.Span,
+        finalizer: Callable,
+        skip_chunk: Optional[Callable[[Any], bool]] = None,
+    ):
         self._stream = stream
         self._span = span
         self._finalizer = finalizer
