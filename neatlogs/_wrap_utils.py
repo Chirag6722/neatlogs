@@ -1140,10 +1140,11 @@ class SyncStreamWrapper:
     while recording timestamps. Calls finalizer on stream exhaustion.
     """
 
-    def __init__(self, stream: Any, span: otel_trace.Span, finalizer: Callable):
+    def __init__(self, stream: Any, span: otel_trace.Span, finalizer: Callable, skip_chunk: Optional[Callable[[Any], bool]] = None):
         self._stream = stream
         self._span = span
         self._finalizer = finalizer
+        self._skip_chunk = skip_chunk
         self._start_time = _stream_start_perf(span)
         self._first_chunk_time: Optional[float] = None
         self._incremental = hasattr(finalizer, "on_chunk") and hasattr(finalizer, "finish")
@@ -1170,34 +1171,39 @@ class SyncStreamWrapper:
         return consume()
 
     def __next__(self):
-        try:
-            chunk = next(self._stream)
-        except StopIteration:
-            self._exhausted = True
-            self._finalize(interrupted=False)
-            raise
-        except BaseException as e:
-            self._finalize_error(e)
-            raise
+        while True:
+            try:
+                chunk = next(self._stream)
+            except StopIteration:
+                self._exhausted = True
+                self._finalize(interrupted=False)
+                raise
+            except BaseException as e:
+                self._finalize_error(e)
+                raise
 
-        if self._first_chunk_time is None:
-            self._first_chunk_time = time.perf_counter()
-        if self._finalized:
+            if self._first_chunk_time is None:
+                self._first_chunk_time = time.perf_counter()
+            if not self._finalized:
+                if self._incremental:
+                    self._finalizer.on_chunk(self._span, chunk)
+                else:
+                    chunk_bytes = _bounded_object_size(
+                        chunk,
+                        _MAX_LEGACY_STREAM_BYTES - self._chunk_bytes,
+                    )
+                    if self._chunk_bytes + chunk_bytes <= _MAX_LEGACY_STREAM_BYTES:
+                        self._chunks.append(chunk)
+                        self._chunk_bytes += chunk_bytes
+                    else:
+                        self._dropped_chunks += 1
+                        self._mark_chunk_overflow()
+            # Telemetry-only chunks (e.g. the usage chunk neatroots asked the
+            # provider for) still feed the finalizer above but are not the
+            # caller's data, so they are not yielded.
+            if self._skip_chunk is not None and self._skip_chunk(chunk):
+                continue
             return chunk
-        if self._incremental:
-            self._finalizer.on_chunk(self._span, chunk)
-        else:
-            chunk_bytes = _bounded_object_size(
-                chunk,
-                _MAX_LEGACY_STREAM_BYTES - self._chunk_bytes,
-            )
-            if self._chunk_bytes + chunk_bytes <= _MAX_LEGACY_STREAM_BYTES:
-                self._chunks.append(chunk)
-                self._chunk_bytes += chunk_bytes
-            else:
-                self._dropped_chunks += 1
-                self._mark_chunk_overflow()
-        return chunk
 
     def _mark_chunk_overflow(self) -> None:
         self._span.set_attribute("neatlogs.capture.truncated", True)
@@ -1321,10 +1327,11 @@ class AsyncStreamWrapper:
     Wraps an async streaming response. Same contract as SyncStreamWrapper.
     """
 
-    def __init__(self, stream: Any, span: otel_trace.Span, finalizer: Callable):
+    def __init__(self, stream: Any, span: otel_trace.Span, finalizer: Callable, skip_chunk: Optional[Callable[[Any], bool]] = None):
         self._stream = stream
         self._span = span
         self._finalizer = finalizer
+        self._skip_chunk = skip_chunk
         self._start_time = _stream_start_perf(span)
         self._first_chunk_time: Optional[float] = None
         self._incremental = hasattr(finalizer, "on_chunk") and hasattr(finalizer, "finish")
@@ -1351,34 +1358,36 @@ class AsyncStreamWrapper:
         return consume()
 
     async def __anext__(self):
-        try:
-            chunk = await self._stream.__anext__()
-        except StopAsyncIteration:
-            self._exhausted = True
-            self._finalize(interrupted=False)
-            raise
-        except BaseException as e:
-            self._finalize_error(e)
-            raise
+        while True:
+            try:
+                chunk = await self._stream.__anext__()
+            except StopAsyncIteration:
+                self._exhausted = True
+                self._finalize(interrupted=False)
+                raise
+            except BaseException as e:
+                self._finalize_error(e)
+                raise
 
-        if self._first_chunk_time is None:
-            self._first_chunk_time = time.perf_counter()
-        if self._finalized:
+            if self._first_chunk_time is None:
+                self._first_chunk_time = time.perf_counter()
+            if not self._finalized:
+                if self._incremental:
+                    self._finalizer.on_chunk(self._span, chunk)
+                else:
+                    chunk_bytes = _bounded_object_size(
+                        chunk,
+                        _MAX_LEGACY_STREAM_BYTES - self._chunk_bytes,
+                    )
+                    if self._chunk_bytes + chunk_bytes <= _MAX_LEGACY_STREAM_BYTES:
+                        self._chunks.append(chunk)
+                        self._chunk_bytes += chunk_bytes
+                    else:
+                        self._dropped_chunks += 1
+                        self._mark_chunk_overflow()
+            if self._skip_chunk is not None and self._skip_chunk(chunk):
+                continue
             return chunk
-        if self._incremental:
-            self._finalizer.on_chunk(self._span, chunk)
-        else:
-            chunk_bytes = _bounded_object_size(
-                chunk,
-                _MAX_LEGACY_STREAM_BYTES - self._chunk_bytes,
-            )
-            if self._chunk_bytes + chunk_bytes <= _MAX_LEGACY_STREAM_BYTES:
-                self._chunks.append(chunk)
-                self._chunk_bytes += chunk_bytes
-            else:
-                self._dropped_chunks += 1
-                self._mark_chunk_overflow()
-        return chunk
 
     def _mark_chunk_overflow(self) -> None:
         self._span.set_attribute("neatlogs.capture.truncated", True)
