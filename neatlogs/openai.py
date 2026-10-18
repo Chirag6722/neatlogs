@@ -366,6 +366,29 @@ def _finalize_response(span: Any, response: Any, duration_ms: float) -> None:
     span.end()
 
 
+def _set_responses_usage(span: Any, usage: Any) -> None:
+    """Record Responses API token usage like the chat paths do: totals and details."""
+    if not usage:
+        return
+    input_tokens = getattr(usage, "input_tokens", None)
+    if input_tokens is not None:
+        span.set_attribute("neatlogs.llm.token_count.prompt", input_tokens)
+    output_tokens = getattr(usage, "output_tokens", None)
+    if output_tokens is not None:
+        span.set_attribute("neatlogs.llm.token_count.completion", output_tokens)
+    total_tokens = getattr(usage, "total_tokens", None)
+    if total_tokens is not None:
+        span.set_attribute("neatlogs.llm.token_count.total", total_tokens)
+    input_details = getattr(usage, "input_tokens_details", None)
+    cached = getattr(input_details, "cached_tokens", None) if input_details is not None else None
+    if cached is not None:
+        span.set_attribute("neatlogs.llm.token_count.cache_read", cached)
+    output_details = getattr(usage, "output_tokens_details", None)
+    reasoning = getattr(output_details, "reasoning_tokens", None) if output_details is not None else None
+    if reasoning is not None:
+        span.set_attribute("neatlogs.llm.token_count.reasoning", reasoning)
+
+
 def _finalize_responses_response(span: Any, response: Any, duration_ms: float) -> None:
     """Extract attributes from a Responses API response."""
     output_text = getattr(response, "output_text", None)
@@ -383,14 +406,7 @@ def _finalize_responses_response(span: Any, response: Any, duration_ms: float) -
     if model:
         span.set_attribute("neatlogs.llm.model_name", model)
 
-    usage = getattr(response, "usage", None)
-    if usage:
-        input_tokens = getattr(usage, "input_tokens", None)
-        output_tokens = getattr(usage, "output_tokens", None)
-        if input_tokens is not None:
-            span.set_attribute("neatlogs.llm.token_count.prompt", input_tokens)
-        if output_tokens is not None:
-            span.set_attribute("neatlogs.llm.token_count.completion", output_tokens)
+    _set_responses_usage(span, getattr(response, "usage", None))
 
     _set_responses_tool_calls(span, getattr(response, "output", None) or [])
     failure = _set_responses_outcome(span, response)
@@ -610,13 +626,7 @@ def _finalize_responses_stream(
         span.set_attribute("neatlogs.llm.output_messages.0.content", "".join(text_parts)[:10000])
     if model:
         span.set_attribute("neatlogs.llm.model_name", model)
-    if usage:
-        it = getattr(usage, "input_tokens", None)
-        ot_ = getattr(usage, "output_tokens", None)
-        if it is not None:
-            span.set_attribute("neatlogs.llm.token_count.prompt", it)
-        if ot_ is not None:
-            span.set_attribute("neatlogs.llm.token_count.completion", ot_)
+    _set_responses_usage(span, usage)
     span.set_attribute("neatlogs.llm.metrics.duration_ms", round(duration_ms, 3))
     if ttft_ms is not None:
         span.set_attribute("neatlogs.llm.metrics.ttft_ms", round(ttft_ms, 3))
