@@ -327,7 +327,8 @@ def _decorate_span(
                                 )
                                 span.set_attribute(
                                     "output.value",
-                                    stream_output.value() + ("" if stream_output.truncated else "]"),
+                                    stream_output.value()
+                                    + ("" if stream_output.truncated else "]"),
                                 )
                                 span.set_attribute("output.mime_type", "application/json")
                             yield chunk
@@ -398,7 +399,8 @@ def _decorate_span(
                                 )
                                 span.set_attribute(
                                     "output.value",
-                                    stream_output.value() + ("" if stream_output.truncated else "]"),
+                                    stream_output.value()
+                                    + ("" if stream_output.truncated else "]"),
                                 )
                                 span.set_attribute("output.mime_type", "application/json")
                             yield chunk
