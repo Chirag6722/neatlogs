@@ -132,7 +132,9 @@ def test_shutdown_of_active_sync_generator_exports_partial_output_without_fake_s
     assert len(in_memory_span_exporter.get_finished_spans()) == 1
 
 
-def test_shutdown_after_two_chunks_exports_exact_partial_json(tracer_provider, in_memory_span_exporter):
+def test_shutdown_after_two_chunks_exports_exact_partial_json(
+    tracer_provider, in_memory_span_exporter
+):
     lifecycle = NeatlogsSpanProcessor(emit_completion_markers=False)
     tracer_provider.add_span_processor(lifecycle)
     set_neatlogs_provider(tracer_provider)
