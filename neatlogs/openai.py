@@ -384,7 +384,9 @@ def _set_responses_usage(span: Any, usage: Any) -> None:
     if cached is not None:
         span.set_attribute("neatlogs.llm.token_count.cache_read", cached)
     output_details = getattr(usage, "output_tokens_details", None)
-    reasoning = getattr(output_details, "reasoning_tokens", None) if output_details is not None else None
+    reasoning = (
+        getattr(output_details, "reasoning_tokens", None) if output_details is not None else None
+    )
     if reasoning is not None:
         span.set_attribute("neatlogs.llm.token_count.reasoning", reasoning)
 
