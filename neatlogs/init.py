@@ -796,8 +796,18 @@ def init(
 
 
 def flush(timeout_millis: int = 30000) -> bool:
-    """Flush the process-default Neatlogs pipeline only."""
-    global _tracer_provider
+    """Flush the process-default Neatlogs pipeline only.
+
+    Returns False if the flush did not finish within ``timeout_millis``. The
+    call itself never blocks longer than that, even when the collector is
+    unreachable and exporter retries are still running.
+    """
+    deadline = time.monotonic() + max(0, timeout_millis) / 1000
+    completed, result = bounded_call(lambda: _flush_default(timeout_millis), deadline)
+    return bool(result) if completed else False
+
+
+def _flush_default(timeout_millis: int) -> bool:
     success = True
 
     # Log provider must flush BEFORE tracer provider: the tracer batch includes

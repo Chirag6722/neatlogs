@@ -311,6 +311,13 @@ class Client:
             return neatlogs.wrap(target, **workflow_attributes)
 
     def flush(self, timeout_millis: int = 30000) -> bool:
+        from .core.deadline import bounded_call
+
+        deadline = time.monotonic() + max(0, timeout_millis) / 1000
+        completed, result = bounded_call(lambda: self._flush_pipeline(timeout_millis), deadline)
+        return bool(result) if completed else False
+
+    def _flush_pipeline(self, timeout_millis: int) -> bool:
         success = True
         if self.log_provider is not None:
             try:
