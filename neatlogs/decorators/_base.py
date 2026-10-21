@@ -66,6 +66,10 @@ def _serialize_obj(obj: Any) -> Any:
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
 
+    # A class is described by name: its __dict__ holds class-level config and methods, not data.
+    if isinstance(obj, type):
+        return f"<class {obj.__qualname__}>"
+
     # Handle lists and tuples
     if isinstance(obj, (list, tuple)):
         return [_serialize_obj(item) for item in obj]
@@ -121,9 +125,17 @@ def _bind_call_args(
         sig = inspect.signature(func)
         bound = sig.bind_partial(*args, **kwargs)
         bound.apply_defaults()
-        return dict(bound.arguments)
+        arguments = dict(bound.arguments)
     except Exception:
         return {"args": list(args), "kwargs": kwargs}
+    # The bound instance or class of a method is never something the caller passed, and its
+    # attributes routinely hold credentials (self.api_key, Client.API_KEY): record only its type.
+    first = next(iter(sig.parameters), None)
+    if first in ("self", "cls") and first in arguments:
+        owner = arguments[first]
+        owner_type = owner if isinstance(owner, type) else type(owner)
+        arguments[first] = f"<{owner_type.__qualname__}>"
+    return arguments
 
 
 def _set_common_span_attrs(
