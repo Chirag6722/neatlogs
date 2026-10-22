@@ -68,7 +68,7 @@ def _serialize_obj(obj: Any) -> Any:
 
     # A class is described by name: its __dict__ holds class-level config and methods, not data.
     if isinstance(obj, type):
-        return f"<class {obj.__qualname__}>"
+        return f"<class {obj.__name__}>"
 
     # Handle lists and tuples
     if isinstance(obj, (list, tuple)):
@@ -118,6 +118,13 @@ def _safe_json_dumps(value: Any) -> str:
         return json.dumps(str(value))
 
 
+def _defined_in_class(func: Callable[..., Any]) -> bool:
+    """True when ``func`` was defined directly in a class body (``Agent.answer``), not at module
+    level (``answer``) or inside another function (``outer.<locals>.answer``)."""
+    parts = getattr(func, "__qualname__", "").split(".")
+    return len(parts) >= 2 and parts[-2] != "<locals>"
+
+
 def _bind_call_args(
     func: Callable[..., Any], args: Tuple[Any, ...], kwargs: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -130,11 +137,13 @@ def _bind_call_args(
         return {"args": list(args), "kwargs": kwargs}
     # The bound instance or class of a method is never something the caller passed, and its
     # attributes routinely hold credentials (self.api_key, Client.API_KEY): record only its type.
+    # Only a function defined in a class body is a method; a plain function whose caller passes an
+    # argument that happens to be named self is captured like any other argument.
     first = next(iter(sig.parameters), None)
-    if first in ("self", "cls") and first in arguments:
+    if first in ("self", "cls") and first in arguments and args and _defined_in_class(func):
         owner = arguments[first]
         owner_type = owner if isinstance(owner, type) else type(owner)
-        arguments[first] = f"<{owner_type.__qualname__}>"
+        arguments[first] = f"<{owner_type.__name__}>"
     return arguments
 
 

@@ -73,6 +73,43 @@ def test_staticmethod_and_explicit_class_argument(tracer_provider, in_memory_spa
     assert captured == {"value": "<class Agent>"}
 
 
+@neatlogs_span(kind="TOOL", name="plain.self_arg")
+def plain_function(self, value):
+    return value
+
+
+def test_plain_function_argument_named_self_is_captured(tracer_provider, in_memory_span_exporter):
+    _install(tracer_provider)
+
+    class Config:
+        def __init__(self):
+            self.region = "eu"
+
+    plain_function(Config(), 1)
+
+    # Not a method, so the caller's own argument is captured like any other.
+    assert _input(in_memory_span_exporter, "plain.self_arg") == {
+        "self": {"region": "eu"},
+        "value": 1,
+    }
+
+
+def test_method_of_a_class_defined_in_a_function(tracer_provider, in_memory_span_exporter):
+    _install(tracer_provider)
+
+    class Local:
+        def __init__(self):
+            self.token = "ghp_local"
+
+        @neatlogs_span(kind="TOOL", name="local.method")
+        def run(self):
+            return 1
+
+    Local().run()
+
+    assert _input(in_memory_span_exporter, "local.method") == {"self": "<Local>"}
+
+
 def test_plain_object_argument_is_still_captured(tracer_provider, in_memory_span_exporter):
     _install(tracer_provider)
 
