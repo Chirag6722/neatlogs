@@ -140,7 +140,7 @@ def _bind_call_args(
     # Only a function defined in a class body is a method; a plain function whose caller passes an
     # argument that happens to be named self is captured like any other argument.
     first = next(iter(sig.parameters), None)
-    if first in ("self", "cls") and first in arguments and args and _defined_in_class(func):
+    if first in ("self", "cls") and first in arguments and _defined_in_class(func):
         owner = arguments[first]
         owner_type = owner if isinstance(owner, type) else type(owner)
         arguments[first] = f"<{owner_type.__name__}>"

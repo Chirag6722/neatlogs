@@ -54,6 +54,18 @@ def test_method_records_self_by_type_only(tracer_provider, in_memory_span_export
     assert "sk-ant-instance-level" not in json.dumps(captured)
 
 
+def test_method_owner_passed_by_keyword_is_recorded_by_type_only(
+    tracer_provider, in_memory_span_exporter
+):
+    _install(tracer_provider)
+
+    Agent.answer(self=Agent(), question="hello")
+
+    captured = _input(in_memory_span_exporter, "agent.answer")
+    assert captured == {"self": "<Agent>", "question": "hello"}
+    assert "sk-ant-instance-level" not in json.dumps(captured)
+
+
 def test_classmethod_records_cls_by_type_only(tracer_provider, in_memory_span_exporter):
     _install(tracer_provider)
 
