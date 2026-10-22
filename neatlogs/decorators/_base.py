@@ -118,11 +118,19 @@ def _safe_json_dumps(value: Any) -> str:
         return json.dumps(str(value))
 
 
-def _defined_in_class(func: Callable[..., Any]) -> bool:
-    """True when ``func`` was defined directly in a class body (``Agent.answer``), not at module
-    level (``answer``) or inside another function (``outer.<locals>.answer``)."""
+def _is_bound_owner(func: Callable[..., Any], param: str, value: Any) -> bool:
+    """True when ``value`` is the instance (``self``) or class (``cls``) a method is bound to.
+
+    ``func`` must be defined directly in a class body (``Agent.answer``, not ``answer`` or
+    ``outer.<locals>.answer``), and ``value`` must be that class or an instance of it. A
+    static method's first argument, or a plain function's argument that happens to be named
+    ``self``, is something the caller passed and is captured as usual.
+    """
     parts = getattr(func, "__qualname__", "").split(".")
-    return len(parts) >= 2 and parts[-2] != "<locals>"
+    if len(parts) < 2 or parts[-2] == "<locals>":
+        return False
+    owner = value if param == "cls" and isinstance(value, type) else type(value)
+    return any(klass.__name__ == parts[-2] for klass in getattr(owner, "__mro__", ()))
 
 
 def _bind_call_args(
@@ -137,10 +145,14 @@ def _bind_call_args(
         return {"args": list(args), "kwargs": kwargs}
     # The bound instance or class of a method is never something the caller passed, and its
     # attributes routinely hold credentials (self.api_key, Client.API_KEY): record only its type.
-    # Only a function defined in a class body is a method; a plain function whose caller passes an
-    # argument that happens to be named self is captured like any other argument.
+    # Only a method's own instance or class is replaced; an argument the caller passes that merely
+    # happens to be named self (static method, plain function) is captured like any other.
     first = next(iter(sig.parameters), None)
-    if first in ("self", "cls") and first in arguments and _defined_in_class(func):
+    if (
+        first in ("self", "cls")
+        and first in arguments
+        and _is_bound_owner(func, first, arguments[first])
+    ):
         owner = arguments[first]
         owner_type = owner if isinstance(owner, type) else type(owner)
         arguments[first] = f"<{owner_type.__name__}>"

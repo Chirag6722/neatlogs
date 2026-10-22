@@ -122,6 +122,40 @@ def test_method_of_a_class_defined_in_a_function(tracer_provider, in_memory_span
     assert _input(in_memory_span_exporter, "local.method") == {"self": "<Local>"}
 
 
+class Utility:
+    @staticmethod
+    @neatlogs_span(kind="TOOL", name="utility.echo")
+    def echo(self):
+        return self
+
+
+def test_staticmethod_argument_named_self_is_captured(tracer_provider, in_memory_span_exporter):
+    _install(tracer_provider)
+
+    Utility.echo({"region": "eu"})
+
+    # The caller passed this value explicitly; it is not a bound owner.
+    assert _input(in_memory_span_exporter, "utility.echo") == {"self": {"region": "eu"}}
+
+
+class SubAgent(Agent):
+    def __init__(self):
+        super().__init__()
+        self.extra_token = "ghp_subclass"
+
+
+def test_inherited_method_on_a_subclass_records_self_by_type_only(
+    tracer_provider, in_memory_span_exporter
+):
+    _install(tracer_provider)
+
+    SubAgent().answer("hi")
+
+    captured = _input(in_memory_span_exporter, "agent.answer")
+    assert captured == {"self": "<SubAgent>", "question": "hi"}
+    assert "ghp_subclass" not in json.dumps(captured)
+
+
 def test_plain_object_argument_is_still_captured(tracer_provider, in_memory_span_exporter):
     _install(tracer_provider)
 
