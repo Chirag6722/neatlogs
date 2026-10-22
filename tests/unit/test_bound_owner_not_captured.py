@@ -138,6 +138,21 @@ def test_staticmethod_argument_named_self_is_captured(tracer_provider, in_memory
     assert _input(in_memory_span_exporter, "utility.echo") == {"self": {"region": "eu"}}
 
 
+def test_staticmethod_receiving_its_own_class_instance_is_captured(
+    tracer_provider, in_memory_span_exporter
+):
+    _install(tracer_provider)
+
+    class Carrier(Utility):
+        def __init__(self):
+            self.region = "eu"
+
+    Utility.echo(Carrier())
+
+    # Still an explicit argument to a static method, even though it is a Utility.
+    assert _input(in_memory_span_exporter, "utility.echo") == {"self": {"region": "eu"}}
+
+
 class SubAgent(Agent):
     def __init__(self):
         super().__init__()

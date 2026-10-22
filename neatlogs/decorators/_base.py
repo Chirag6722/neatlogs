@@ -130,7 +130,11 @@ def _is_bound_owner(func: Callable[..., Any], param: str, value: Any) -> bool:
     if len(parts) < 2 or parts[-2] == "<locals>":
         return False
     owner = value if param == "cls" and isinstance(value, type) else type(value)
-    return any(klass.__name__ == parts[-2] for klass in getattr(owner, "__mro__", ()))
+    if not any(klass.__name__ == parts[-2] for klass in getattr(owner, "__mro__", ())):
+        return False
+    # A static method is never bound, even when it is passed an instance of its own class.
+    stored = inspect.getattr_static(owner, getattr(func, "__name__", ""), None)
+    return not isinstance(stored, staticmethod)
 
 
 def _bind_call_args(
